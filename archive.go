@@ -1073,6 +1073,13 @@ func createImpliedDirectories(root *os.Root, hdr *tar.Header, options *TarOption
 					return err
 				}
 			}
+			// root.Mkdir applies the mode subject to the process umask, so
+			// re-apply it with Chmod to guarantee ImpliedDirectoryMode
+			// independent of umask, matching the previous MkdirAllAndChown
+			// behavior.
+			if err := root.Chmod(cur, ImpliedDirectoryMode); err != nil {
+				return err
+			}
 		}
 	}
 
