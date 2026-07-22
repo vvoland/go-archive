@@ -503,6 +503,10 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 
 	case tar.TypeSymlink:
+		// Symlink targets are archive data, not filesystem paths. Preserve the
+		// target verbatim rather than cleaning or converting it (filepath.FromSlash).
+		linkTarget := hdr.Linkname
+
 		// os.Root.Symlink contains the symlink's location (newname) within
 		// root but stores the target (oldname) verbatim, so absolute targets
 		// such as /usr/lib -- common and legitimate in container images -- are
@@ -510,7 +514,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		// created within root via openat(2) semantics, without resolving to an
 		// absolute path; containment applies when the symlink is followed, not
 		// at creation.
-		if err := root.Symlink(hdr.Linkname, dstPath); err != nil {
+		if err := root.Symlink(linkTarget, dstPath); err != nil {
 			return err
 		}
 
