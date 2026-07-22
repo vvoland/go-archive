@@ -877,7 +877,7 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	tr := tar.NewReader(decompressedArchive)
 

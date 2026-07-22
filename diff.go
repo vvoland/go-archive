@@ -96,7 +96,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 					return 0, err
 				}
 				cerr := createTarFile(aufsRoot, basename, hdr, tr, options)
-				aufsRoot.Close()
+				_ = aufsRoot.Close()
 				if cerr != nil {
 					return 0, cerr
 				}
