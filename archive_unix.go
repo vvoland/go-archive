@@ -80,13 +80,8 @@ func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, dstPath string) 
 		return fmt.Errorf("device number %d:%d for %q out of range: %w", hdr.Devmajor, hdr.Devminor, hdr.Name, errInvalidArchive)
 	}
 
-	parent, err := root.OpenFile(filepath.Dir(dstPath), os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	defer parent.Close()
-
-	return mknodat(int(parent.Fd()), filepath.Base(dstPath), mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
+	// Prefer mknodat; fall back to a bounded path where unavailable.
+	return mknodInRoot(root, dstPath, mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
 }
 
 // handleLChmod applies the mode from hdrInfo to dstPath within root, skipping
