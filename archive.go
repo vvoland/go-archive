@@ -1042,10 +1042,18 @@ func createImpliedDirectories(root *os.Root, hdr *tar.Header, options *TarOption
 			}
 			cur = filepath.Join(cur, c)
 			if err := root.Mkdir(cur, ImpliedDirectoryMode); err != nil {
-				if errors.Is(err, os.ErrExist) {
+				if !errors.Is(err, os.ErrExist) {
+					return err
+				}
+
+				fi, err := root.Lstat(cur)
+				if err != nil {
+					return err
+				}
+				if fi.IsDir() {
 					continue
 				}
-				return err
+				return &os.PathError{Op: "mkdir", Path: cur, Err: syscall.ENOTDIR}
 			}
 			if options.NoLchown {
 				continue
