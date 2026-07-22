@@ -1082,7 +1082,7 @@ func createImpliedDirectories(root *os.Root, hdr *tar.Header, options *TarOption
 			}
 			if uid != 0 || gid != 0 {
 				if err := dir.Chown(uid, gid); err != nil {
-					dir.Close()
+					_ = dir.Close()
 					return err
 				}
 			}
@@ -1091,7 +1091,7 @@ func createImpliedDirectories(root *os.Root, hdr *tar.Header, options *TarOption
 			// independent of umask, matching the previous MkdirAllAndChown
 			// behavior.
 			if err := dir.Chmod(ImpliedDirectoryMode); err != nil {
-				dir.Close()
+				_ = dir.Close()
 				return err
 			}
 			if err := dir.Close(); err != nil {
