@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -95,7 +96,7 @@ func handleLChmod(root *os.Root, dstPath string, hdr *tar.Header, hdrInfo os.Fil
 	case tar.TypeLink:
 		// If the target is a symlink, there is no way to chmod the hardlink
 		// without following it.
-		fi, err := root.Lstat(filepath.FromSlash(hdr.Linkname))
+		fi, err := root.Lstat(filepath.FromSlash(path.Clean(hdr.Linkname)))
 		if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
