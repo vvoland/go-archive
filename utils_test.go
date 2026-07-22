@@ -96,7 +96,7 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 	}
 	if err := untar(dest, reader); err != nil {
 		var boErr *breakoutErr
-		if !errors.As(err, &boErr) {
+		if !errors.As(err, &boErr) && !isPathEscapes(err) {
 			// If untar returns an error unrelated to an archive breakout,
 			// then consider this an unexpected error and abort.
 			return err

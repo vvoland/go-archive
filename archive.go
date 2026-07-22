@@ -97,6 +97,23 @@ func NewDefaultArchiver() *Archiver {
 	return &Archiver{Untar: Untar}
 }
 
+// isPathEscapes reports whether err is os.Root's path-containment error.
+//
+// os.Root currently returns an unexported errPathEscapes sentinel, so callers
+// cannot detect it with errors.Is. Keep the string comparison isolated here
+// until Go exports the error; see https://go.dev/issue/74640.
+func isPathEscapes(err error) bool {
+	// https://github.com/golang/go/blob/go1.26.5/src/os/file.go#L421
+	const errPathEscapes = "path escapes from parent"
+	for err != nil {
+		if errors.Unwrap(err) == nil {
+			return err.Error() == errPathEscapes
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
+}
+
 // breakoutErr marks errors caused by archive breakout attempts.
 // Unit tests use it to distinguish expected breakout failures from other
 // errors.
