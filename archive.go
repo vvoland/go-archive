@@ -589,7 +589,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	case tar.TypeLink:
 		// Follow the hardlink only when its target is not itself a symlink.
-		fi, err := root.Lstat(filepath.FromSlash(hdr.Linkname))
+		fi, err := root.Lstat(filepath.FromSlash(path.Clean(hdr.Linkname)))
 		if err == nil && fi.Mode()&os.ModeSymlink == 0 {
 			if err := root.Chtimes(dstPath, aTime, mTime); err != nil {
 				return err
