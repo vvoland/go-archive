@@ -59,7 +59,7 @@ func getFileUIDGID(stat any) (int, int, error) {
 //
 // Creating device nodes is not supported when running in a user namespace,
 // produces a [syscall.EPERM] in most cases.
-func handleTarTypeBlockCharFifo(hdr *tar.Header, dstPath string) error {
+func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, dstPath string) error {
 	mode := uint32(hdr.Mode & 0o7777)
 	switch hdr.Typeflag {
 	case tar.TypeBlock:
@@ -80,7 +80,13 @@ func handleTarTypeBlockCharFifo(hdr *tar.Header, dstPath string) error {
 		return fmt.Errorf("device number %d:%d for %q out of range: %w", hdr.Devmajor, hdr.Devminor, hdr.Name, errInvalidArchive)
 	}
 
-	return mknod(dstPath, mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
+	parent, err := root.OpenFile(filepath.Dir(dstPath), os.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+
+	return mknodat(int(parent.Fd()), filepath.Base(dstPath), mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
 }
 
 // handleLChmod applies the mode from hdrInfo to dstPath within root, skipping
