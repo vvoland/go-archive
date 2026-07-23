@@ -1063,7 +1063,7 @@ func createImpliedDirectories(root *os.Root, hdr *tar.Header, options *TarOption
 					return err
 				}
 
-				fi, err := root.Lstat(cur)
+				fi, err := root.Stat(cur)
 				if err != nil {
 					return err
 				}
