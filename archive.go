@@ -81,10 +81,16 @@ type (
 		// were probably in the archive for a reason, so set this option at
 		// your own peril.
 		BestEffortXattrs bool
-		// DestinationRoot constrains extraction to an already-open directory.
-		// When set, extraction paths are interpreted relative to this root. The
-		// caller retains ownership of DestinationRoot.
+		// DestinationRoot selects an already-open directory for Unpack, Untar,
+		// and UntarUncompressed.
+		// When set, dest is interpreted relative to this root.
+		// An empty dest or "." extracts directly into the root.
+		// The caller retains ownership and must keep the root open during extraction.
+		// Extraction closes only roots it opens for nested destinations.
 		// On macOS, device and FIFO creation is unsupported.
+		// Outside Linux, extended attributes are unsupported on symlinks,
+		// devices, and FIFOs.
+		// On Linux, extended attributes require a mounted /proc.
 		DestinationRoot *os.Root
 
 		// internalOptions contains options for use by packages within this module.
@@ -503,7 +509,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 	// Resolve the parent both to handle ENOENT from missing components or dangling
 	// symlinks, and to determine whether an os.Root breakout was caused by an
 	// absolute symlink. Relative symlink escapes preserve the original Stat error.
-	resolved, err := resolveFSRootPath(root.Name(), parent)
+	resolved, err := resolveRootPath(root, parent)
 	if err != nil {
 		return resolvedArchivePath{}, err
 	}
@@ -512,16 +518,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 		return resolvedArchivePath{}, statErr
 	}
 
-	relParent, err := filepath.Rel(root.Name(), resolved.path)
-	if err != nil {
-		return resolvedArchivePath{}, breakoutError(fmt.Errorf(
-			"could not make resolved parent %q relative to root %q: %w",
-			resolved.path,
-			root.Name(),
-			err,
-		))
-	}
-	if relParent != "." && !filepath.IsLocal(relParent) {
+	if resolved.path != "." && !filepath.IsLocal(resolved.path) {
 		return resolvedArchivePath{}, breakoutError(fmt.Errorf(
 			"resolved parent %q escapes root %q",
 			resolved.path,
@@ -529,7 +526,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 		))
 	}
 
-	return resolvedArchivePath{path: filepath.Join(relParent, base)}, nil
+	return resolvedArchivePath{path: filepath.Join(resolved.path, base)}, nil
 }
 
 // resolveHardlinkTarget validates a POSIX hardlink target and resolves it to
@@ -697,17 +694,21 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		if !ok {
 			continue
 		}
-		if !resolvedXattrPath {
-			var err error
-			xattrPath, err = fsRootPath(root.Name(), dstPath)
-			if err != nil {
-				return err
+		var err error
+		if opts != nil && opts.DestinationRoot != nil {
+			err = lsetxattrInRoot(root, dstPath, xattr, []byte(value), 0)
+		} else {
+			if !resolvedXattrPath {
+				var err error
+				xattrPath, err = fsRootPath(root.Name(), dstPath)
+				if err != nil {
+					return err
+				}
+				resolvedXattrPath = true
 			}
-			resolvedXattrPath = true
+			err = lsetxattr(xattrPath, xattr, []byte(value), 0)
 		}
-		// os.Root has no xattr support; use the absolute path derived from
-		// the root so the path remains bounded.
-		if err := lsetxattr(xattrPath, xattr, []byte(value), 0); err != nil {
+		if err != nil {
 			if bestEffortXattrs && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
 				// EPERM occurs if modifying xattrs is not allowed. This can
 				// happen when running in userns with restrictions (ChromeOS).
@@ -1008,12 +1009,20 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 	if options == nil {
 		options = &TarOptions{}
 	}
-	dest = filepath.Clean(dest)
-	root, closeRoot, err := extractionRoot(dest, options)
-	if err != nil {
-		return err
-	}
-	if closeRoot {
+	root := options.DestinationRoot
+	if root == nil {
+		var err error
+		root, err = os.OpenRoot(filepath.Clean(dest))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = root.Close() }()
+	} else if dest != "" && dest != "." {
+		var err error
+		root, err = root.OpenRoot(dest)
+		if err != nil {
+			return err
+		}
 		defer func() { _ = root.Close() }()
 	}
 
@@ -1146,18 +1155,6 @@ loop:
 	return nil
 }
 
-func extractionRoot(dest string, options *TarOptions) (*os.Root, bool, error) {
-	if options.DestinationRoot == nil {
-		root, err := os.OpenRoot(dest)
-		return root, err == nil, err
-	}
-	if dest == "." {
-		return options.DestinationRoot, false, nil
-	}
-	root, err := options.DestinationRoot.OpenRoot(dest)
-	return root, err == nil, err
-}
-
 // unrepresentableOnWindows returns an error describing why a tar entry cannot
 // be faithfully created on Windows, or nil if it can (always on non-Windows).
 // On Windows ":" is illegal in a filename and "\" is a path separator, so a tar
@@ -1280,8 +1277,6 @@ func untarHandler(tarArchive io.Reader, dest string, options *TarOptions, decomp
 	if tarArchive == nil {
 		return errors.New("empty archive")
 	}
-	dest = filepath.Clean(dest)
-
 	r := tarArchive
 	if decompress {
 		decompressedArchive, err := compression.DecompressStream(tarArchive)

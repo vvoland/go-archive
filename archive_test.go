@@ -851,6 +851,7 @@ func TestUntarParentTraversalContained(t *testing.T) {
 }
 
 func TestUntarDestinationRootRetainsIdentityAfterRename(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not permit renaming an open directory")
 	}
@@ -862,8 +863,11 @@ func TestUntarDestinationRootRetainsIdentityAfterRename(t *testing.T) {
 	root, err := os.OpenRoot(dest)
 	assert.NilError(t, err)
 	defer root.Close()
+	assert.NilError(t, root.Mkdir("output", 0o755))
 	assert.NilError(t, os.Rename(dest, moved))
 	assert.NilError(t, os.Mkdir(dest, 0o755))
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "output"), 0o755))
+	assert.NilError(t, os.Symlink("/wrong", filepath.Join(dest, "output", "link")))
 
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
@@ -876,15 +880,32 @@ func TestUntarDestinationRootRetainsIdentityAfterRename(t *testing.T) {
 	}))
 	_, err = tw.Write(content)
 	assert.NilError(t, err)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "link",
+		Typeflag: tar.TypeSymlink,
+		Linkname: "/target",
+		Mode:     0o777,
+	}))
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "link/nested",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+		Size:     int64(len(content)),
+	}))
+	_, err = tw.Write(content)
+	assert.NilError(t, err)
 	assert.NilError(t, tw.Close())
 
-	assert.NilError(t, Untar(&buf, ".", &TarOptions{NoLchown: true, DestinationRoot: root}))
-	actual, err := os.ReadFile(filepath.Join(moved, "file"))
+	assert.NilError(t, Untar(&buf, "output", &TarOptions{NoLchown: true, DestinationRoot: root}))
+	actual, err := os.ReadFile(filepath.Join(moved, "output", "file"))
 	assert.NilError(t, err)
 	assert.DeepEqual(t, actual, content)
-	_, err = os.Stat(filepath.Join(dest, "file"))
+	actual, err = os.ReadFile(filepath.Join(moved, "output", "target", "nested"))
+	assert.NilError(t, err)
+	assert.DeepEqual(t, actual, content)
+	_, err = os.Stat(filepath.Join(dest, "output", "file"))
 	assert.Assert(t, os.IsNotExist(err))
-	_, err = root.Stat("file")
+	_, err = root.Stat("output/file")
 	assert.NilError(t, err, "Untar must not close DestinationRoot")
 }
 

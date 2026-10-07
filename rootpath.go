@@ -33,15 +33,22 @@ type fsRootPathResult struct {
 // fsRootPath joins a path with a root, evaluating and bounding any
 // symlink to the root directory.
 func fsRootPath(root, path string) (string, error) {
-	result, err := resolveFSRootPath(root, path)
+	dir, err := os.OpenRoot(root)
 	if err != nil {
 		return "", err
 	}
-	return result.path, nil
+	defer dir.Close()
+	result, err := resolveRootPath(dir, path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, result.path), nil
 }
 
-func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
-	result := fsRootPathResult{path: root}
+// resolveRootPath resolves symlinks through the directory handle, including
+// absolute targets interpreted relative to root rather than the host filesystem.
+func resolveRootPath(root *os.Root, path string) (fsRootPathResult, error) {
+	result := fsRootPathResult{path: "."}
 	if path == "" {
 		return result, nil
 	}
@@ -56,15 +63,15 @@ func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
 		if i == linksWalked {
 			newpath = filepath.Join(string(os.PathSeparator), newpath)
 			if path == newpath {
-				result.path = filepath.Join(root, newpath)
-				return result, nil
+				result.path, err = filepath.Rel(string(os.PathSeparator), newpath)
+				return result, err
 			}
 			path = newpath
 		}
 	}
 }
 
-func walkLink(root, path string, linksWalked *int, result *fsRootPathResult) (newpath string, islink bool, err error) {
+func walkLink(root *os.Root, path string, linksWalked *int, result *fsRootPathResult) (newpath string, islink bool, err error) {
 	if *linksWalked > 255 {
 		return "", false, errTooManyLinks
 	}
@@ -73,9 +80,11 @@ func walkLink(root, path string, linksWalked *int, result *fsRootPathResult) (ne
 	if path == string(os.PathSeparator) {
 		return path, false, nil
 	}
-	realPath := filepath.Join(root, path)
-
-	fi, err := os.Lstat(realPath)
+	rel, err := filepath.Rel(string(os.PathSeparator), path)
+	if err != nil {
+		return "", false, err
+	}
+	fi, err := root.Lstat(rel)
 	if err != nil {
 		// If path does not yet exist, treat as non-symlink
 		if os.IsNotExist(err) {
@@ -86,7 +95,7 @@ func walkLink(root, path string, linksWalked *int, result *fsRootPathResult) (ne
 	if fi.Mode()&os.ModeSymlink == 0 {
 		return path, false, nil
 	}
-	newpath, err = os.Readlink(realPath)
+	newpath, err = root.Readlink(rel)
 	if err != nil {
 		return "", false, err
 	}
@@ -110,7 +119,7 @@ func walkLink(root, path string, linksWalked *int, result *fsRootPathResult) (ne
 	return newpath, true, nil
 }
 
-func walkLinks(root, path string, linksWalked *int, result *fsRootPathResult) (string, error) {
+func walkLinks(root *os.Root, path string, linksWalked *int, result *fsRootPathResult) (string, error) {
 	switch dir, file := filepath.Split(path); {
 	case dir == "":
 		newpath, _, err := walkLink(root, file, linksWalked, result)
