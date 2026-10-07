@@ -20,6 +20,9 @@ import (
 // compressed or uncompressed.
 // Returns the size in bytes of the contents of the layer.
 func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64, err error) {
+	if options != nil && options.DestinationRoot != nil {
+		return 0, errors.New("DestinationRoot is not supported by layer extraction")
+	}
 	root, err := os.OpenRoot(dest)
 	if err != nil {
 		return 0, err
